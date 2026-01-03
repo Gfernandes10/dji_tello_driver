@@ -8,7 +8,7 @@ from tf_transformations import quaternion_from_euler
 import numpy as np
 from dji_tello_msgs.msg import TelloStatus
 from std_srvs.srv import Trigger
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
 
@@ -25,8 +25,8 @@ class TelloNode(Node):
         self.tello = Tello()
         try:
             self.tello.connect()
-            #self.tello.streamon() # Currently this is frozen my computer, I need to understand why
-            self.get_logger().info('Conected to Tello!')
+            self.tello.streamon()  # Iniciar stream de vídeo
+            self.get_logger().info('Conected to Tello and video stream started!')
         except Exception as e:
             self.get_logger().error(f'Conection to tello was not succesful: {e}')
             return
@@ -44,12 +44,16 @@ class TelloNode(Node):
         # Create a service for landing
         self.land_service = self.create_service(Trigger, 'tello/land', self.land_callback)
 
-        """ # Create a publisher for video stream
+        # Create a publisher for video stream
         self.video_pub = self.create_publisher(Image, 'tello/image_raw', 10)
+        self.camera_info_pub = self.create_publisher(CameraInfo, 'tello/camera_info', 10)
         self.video_timer = self.create_timer(1.0/30.0, self.publish_video_stream) # 30 FPS
         # Create a CvBridge for converting OpenCV images to ROS Image messages
         self.bridge = CvBridge()
-        self.frame_read = self.tello.get_frame_read() """
+        self.frame_read = self.tello.get_frame_read()
+        
+        # Setup camera info (calibração aproximada do Tello)
+        self.setup_camera_info() 
 
     def publish_odometry(self):
         try:
@@ -133,17 +137,73 @@ class TelloNode(Node):
             print(f'Conectado à rede {ssid}')
         else:
             print(f'Rede {ssid} não encontrada!')
+    
+    def setup_camera_info(self):
+        """
+        Configura os parâmetros intrínsecos da câmera do Tello.
+        NOTA: Estes são valores aproximados. Para precisão, execute calibração real
+        usando camera_calibration do ROS ou OpenCV.
+        """
+        self.camera_info = CameraInfo()
+        
+        # Resolução da câmera do Tello
+        self.camera_info.width = 960
+        self.camera_info.height = 720
+        
+        # Matriz de câmera K (intrinsics)
+        # [fx  0  cx]
+        # [ 0 fy  cy]
+        # [ 0  0   1]
+        # Valores aproximados baseados em FOV ~82.6° do Tello
+        fx = 921.17  # focal length em pixels (horizontal)
+        fy = 919.15  # focal length em pixels (vertical)
+        cx = 479.5   # centro óptico x (width/2)
+        cy = 359.5   # centro óptico y (height/2)
+        
+        self.camera_info.k = [fx, 0.0, cx,
+                              0.0, fy, cy,
+                              0.0, 0.0, 1.0]
+        
+        # Coeficientes de distorção [k1, k2, p1, p2, k3]
+        # Valores aproximados - requer calibração real para precisão
+        self.camera_info.d = [0.0, 0.0, 0.0, 0.0, 0.0]
+        
+        # Modelo de distorção
+        self.camera_info.distortion_model = "plumb_bob"
+        
+        # Frame ID
+        self.camera_info.header.frame_id = 'tello_camera'
+        
+        # Matriz de retificação (identidade se não houver retificação)
+        self.camera_info.r = [1.0, 0.0, 0.0,
+                              0.0, 1.0, 0.0,
+                              0.0, 0.0, 1.0]
+        
+        # Matriz de projeção P (3x4)
+        # [fx'  0  cx' Tx]
+        # [ 0  fy' cy' Ty]
+        # [ 0   0   1   0]
+        self.camera_info.p = [fx, 0.0, cx, 0.0,
+                              0.0, fy, cy, 0.0,
+                              0.0, 0.0, 1.0, 0.0]
+        
 
     def publish_video_stream(self):
-
         try:
             frame = self.frame_read.frame
             if frame is not None:
-                # Convert the OpenCV image to a ROS Image message
+                # Usar o mesmo timestamp para imagem e camera_info
+                timestamp = self.get_clock().now().to_msg()
+                
+                # Publicar imagem
                 image_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-                image_msg.header.stamp = self.get_clock().now().to_msg()
+                image_msg.header.stamp = timestamp
                 image_msg.header.frame_id = 'tello_camera'
                 self.video_pub.publish(image_msg)
+                
+                # Publicar camera_info com o mesmo timestamp
+                self.camera_info.header.stamp = timestamp
+                self.camera_info_pub.publish(self.camera_info)
         except Exception as e:
             self.get_logger().error(f'Error publishing video stream: {e}')
 

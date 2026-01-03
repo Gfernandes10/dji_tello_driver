@@ -1,0 +1,37 @@
+# Calibração da Câmera do Tello
+# NOTA: Estes são valores aproximados baseados nas especificações do fabricante
+# Para melhor precisão, execute calibração real usando:
+# ros2 run camera_calibration cameracalibrator --size 8x6 --square 0.108 image:=/tello/image_raw
+
+image_width: 960
+image_height: 720
+
+camera_name: tello_camera
+
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [921.17, 0.0, 479.5,
+         0.0, 919.15, 359.5,
+         0.0, 0.0, 1.0]
+
+distortion_model: plumb_bob
+
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0,
+         0.0, 1.0, 0.0,
+         0.0, 0.0, 1.0]
+
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [921.17, 0.0, 479.5, 0.0,
+         0.0, 919.15, 359.5, 0.0,
+         0.0, 0.0, 1.0, 0.0]
